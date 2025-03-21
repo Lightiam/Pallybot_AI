@@ -1,0 +1,7 @@
+action_endpoint:
+  url: "http://localhost:5055/webhook"
+
+models:
+  url: ${RASA_MODEL_SERVER:}
+  token: ${RASA_MODEL_TOKEN:}
+  wait_time_between_pulls: ${RASA_MODEL_PULL_INTERVAL:100}

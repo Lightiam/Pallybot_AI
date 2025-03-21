@@ -1,0 +1,68 @@
+version: "3.1"
+
+intents:
+  - start_session
+  - ask_question
+  - submit_response
+  - evaluate_response
+  - end_session
+
+entities:
+  - topic
+  - response
+  - settings
+
+slots:
+  interviewer_style:
+    type: text
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: settings
+      role: interviewer_style
+  interview_type:
+    type: text
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: settings
+      role: interview_type
+  current_topic:
+    type: text
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: topic
+  current_response:
+    type: text
+    influence_conversation: false
+    mappings:
+    - type: from_entity
+      entity: response
+
+responses:
+  utter_start_session:
+    - text: "Interview session started successfully"
+  
+  utter_end_session:
+    - text: "Interview session ended"
+
+  utter_technical_question:
+    - text: "Can you explain how closures work in JavaScript and provide a practical example?"
+    - text: "What are the key differences between var, let, and const in JavaScript?"
+    - text: "How does the event loop work in JavaScript?"
+
+  utter_behavioral_question:
+    - text: "Can you tell me about a challenging project you worked on?"
+    - text: "How do you handle conflicts in a team?"
+    - text: "Describe a situation where you had to learn something quickly."
+
+actions:
+  - action_start_session
+  - action_ask_question
+  - action_evaluate_response
+  - action_end_session
+
+session_config:
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: false

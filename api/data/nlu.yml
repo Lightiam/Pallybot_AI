@@ -1,0 +1,42 @@
+version: "3.1"
+
+nlu:
+  - intent: start_session
+    examples: |
+      - start interview
+      - begin session
+      - initialize interview
+      - start new interview
+      - setup interview
+
+  - intent: ask_question
+    examples: |
+      - ask next question
+      - what's the next question
+      - give me a question
+      - ask me something
+      - next question please
+
+  - intent: submit_response
+    examples: |
+      - here's my answer
+      - my response is
+      - I think
+      - let me explain
+      - in my opinion
+
+  - intent: evaluate_response
+    examples: |
+      - evaluate my answer
+      - how did I do
+      - check my response
+      - assess my answer
+      - rate my response
+
+  - intent: end_session
+    examples: |
+      - end interview
+      - finish session
+      - stop interview
+      - complete interview
+      - terminate session
