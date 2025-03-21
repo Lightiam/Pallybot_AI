@@ -1,0 +1,24 @@
+version: "3.1"
+
+rules:
+  - rule: Start session
+    steps:
+      - intent: start_session
+      - action: action_start_session
+      - action: utter_start_session
+
+  - rule: Ask question
+    steps:
+      - intent: ask_question
+      - action: action_ask_question
+
+  - rule: Evaluate response
+    steps:
+      - intent: evaluate_response
+      - action: action_evaluate_response
+
+  - rule: End session
+    steps:
+      - intent: end_session
+      - action: action_end_session
+      - action: utter_end_session

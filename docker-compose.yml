@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  rasa:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./api:/app
+    command: run --enable-api --cors "*"
+    environment:
+      - RASA_MODEL_SERVER=
+      - RASA_MODEL_TOKEN=
+      - RASA_MODEL_PULL_INTERVAL=100
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=pallybot-admin-password
+    depends_on:
+      - couchdb
+
+  actions:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "5055:5055"
+    volumes:
+      - ./api:/app
+    command: run actions
+    environment:
+      - ACTIONS_URL=http://localhost:5055/webhook
+      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=pallybot-admin-password
+    depends_on:
+      - couchdb
+
+  couchdb:
+    image: couchdb:3.3.2
+    ports:
+      - "5984:5984"
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=pallybot-admin-password
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+
+volumes:
+  couchdb_data:
