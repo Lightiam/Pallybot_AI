@@ -4,9 +4,10 @@
   
 [build.environment]
   VITE_API_URL = "https://pallybot-api.fly.dev"
-  VITE_COUCHDB_URL = "https://couchdb.pallybot.dev"
-  VITE_COUCHDB_USER = "pallybot"
-  VITE_COUCHDB_PASSWORD = "pallybot-secure-password"
+  # CouchDB environment variables should be set in Netlify UI
+  # VITE_COUCHDB_URL
+  # VITE_COUCHDB_USER
+  # VITE_COUCHDB_PASSWORD
   
 [[redirects]]
   from = "/*"
