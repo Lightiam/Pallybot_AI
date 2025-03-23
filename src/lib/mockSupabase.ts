@@ -1,5 +1,5 @@
 // Mock implementation of Supabase client
-import { SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient, User, Session } from '@supabase/supabase-js';
 import { Database } from '../types/supabase';
 
 // Mock data for different tables
@@ -35,76 +35,98 @@ const mockData: Record<string, any> = {
   ]
 };
 
+// Create mock user and session objects
+const createMockUser = (email: string = 'mock@example.com'): User => ({
+  id: 'mock-user-id',
+  app_metadata: {},
+  user_metadata: {
+    full_name: 'Mock User'
+  },
+  aud: 'authenticated',
+  created_at: new Date().toISOString(),
+  email: email,
+  email_confirmed_at: new Date().toISOString(),
+  phone: '',
+  confirmed_at: new Date().toISOString(),
+  last_sign_in_at: new Date().toISOString(),
+  role: 'authenticated',
+  updated_at: new Date().toISOString()
+});
+
+const createMockSession = (user: User): Session => ({
+  access_token: 'mock-access-token',
+  refresh_token: 'mock-refresh-token',
+  expires_in: 3600,
+  expires_at: Math.floor(Date.now() / 1000) + 3600,
+  token_type: 'bearer',
+  user: user
+});
+
 class MockSupabaseClient {
+  private mockUser: User = createMockUser();
+  private mockSession: Session = createMockSession(this.mockUser);
+  
   auth = {
     getUser: async () => ({ 
-      data: { 
-        user: { 
-          id: 'mock-user-id',
-          email: 'mock@example.com',
-          user_metadata: {
-            full_name: 'Mock User'
-          }
-        } 
-      }, 
+      data: { user: this.mockUser }, 
       error: null 
     }),
+    
     signInWithPassword: async (credentials: { email: string, password: string }) => {
-      // Always succeed with mock credentials
+      console.log('Mock: Signing in with', credentials.email);
+      // Update mock user with provided email
+      this.mockUser = createMockUser(credentials.email);
+      this.mockSession = createMockSession(this.mockUser);
+      
       return { 
         data: { 
-          user: { 
-            id: 'mock-user-id',
-            email: credentials.email || 'mock@example.com',
-            user_metadata: {
-              full_name: 'Mock User'
-            }
-          },
-          session: {
-            access_token: 'mock-access-token',
-            refresh_token: 'mock-refresh-token',
-            expires_at: Date.now() + 3600
-          }
+          user: this.mockUser,
+          session: this.mockSession
         }, 
         error: null 
       };
     },
-    signUp: async () => ({ 
-      data: { 
-        user: { 
-          id: 'mock-user-id',
-          email: 'mock@example.com' 
-        } 
-      }, 
-      error: null 
-    }),
-    signOut: async () => ({ error: null }),
-    onAuthStateChange: (callback: (event: string, session: any) => void) => {
+    
+    signUp: async (credentials: { email: string, password: string }) => {
+      console.log('Mock: Signing up with', credentials.email);
+      this.mockUser = createMockUser(credentials.email);
+      this.mockSession = createMockSession(this.mockUser);
+      
+      return { 
+        data: { 
+          user: this.mockUser,
+          session: this.mockSession
+        }, 
+        error: null 
+      };
+    },
+    
+    signOut: async () => {
+      console.log('Mock: Signing out');
+      return { error: null };
+    },
+    
+    onAuthStateChange: (callback: (event: string, session: Session | null) => void) => {
       // Call the callback immediately with the mock session
-      callback('SIGNED_IN', {
-        user: { 
-          id: 'mock-user-id', 
-          email: 'mock@example.com',
-          user_metadata: {
-            full_name: 'Mock User'
-          }
-        }
-      });
+      console.log('Mock: Auth state change listener registered');
+      setTimeout(() => {
+        callback('SIGNED_IN', this.mockSession);
+      }, 0);
       
       return {
-        data: { subscription: { unsubscribe: () => {} } },
+        data: { 
+          subscription: { 
+            unsubscribe: () => {
+              console.log('Mock: Auth state change listener unsubscribed');
+            } 
+          } 
+        },
         error: null
       };
     },
+    
     getSession: async () => ({
-      data: { 
-        session: { 
-          user: { 
-            id: 'mock-user-id', 
-            email: 'mock@example.com' 
-          }
-        }
-      },
+      data: { session: this.mockSession },
       error: null
     })
   };
@@ -112,8 +134,7 @@ class MockSupabaseClient {
   from = (table: string) => ({
     select: () => ({
       eq: (field: string, value: any) => {
-        // Use field and value to filter data if needed
-        console.log(`Filtering ${table} where ${field} = ${value}`);
+        console.log(`Mock: Filtering ${table} where ${field} = ${value}`);
         return {
           single: async () => ({ 
             data: mockData[table] || null, 
@@ -152,11 +173,14 @@ class MockSupabaseClient {
   
   // Add storage implementation
   storage = {
-    from: (bucket: string) => ({
-      upload: async (path: string, file: any) => ({ 
-        data: { path },
-        error: null
-      }),
+    from: (_bucket: string) => ({
+      upload: async (path: string, _file: any) => {
+        console.log(`Mock: Uploading file to ${path}`);
+        return { 
+          data: { path },
+          error: null
+        };
+      },
       getPublicUrl: (path: string) => ({
         data: { publicUrl: `https://placeholder.com/${path}` }
       })
@@ -168,7 +192,7 @@ export const supabase = new MockSupabaseClient() as unknown as SupabaseClient<Da
 
 // Helper functions
 export const getCachedCredentials = () => {
-  return { email: 'demo@example.com', rememberMe: true };
+  return { email: 'mock@example.com', rememberMe: true };
 };
 
 export const saveCredentials = (email: string, rememberMe: boolean) => {
