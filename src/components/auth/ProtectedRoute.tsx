@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Loader2 } from 'lucide-react';
+import { Session } from '@supabase/supabase-js';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -24,9 +25,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(!!session);
-    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event: string, session: Session | null) => {
+        setIsAuthenticated(!!session);
+      }
+    );
 
     return () => subscription.unsubscribe();
   }, []);
