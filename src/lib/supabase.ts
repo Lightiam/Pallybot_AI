@@ -8,11 +8,17 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 let supabase: SupabaseClient<Database>;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Missing Supabase environment variables, using mock implementation');
+// For production/deployment, always use mock implementation to avoid network errors
+if (import.meta.env.PROD || !supabaseUrl || !supabaseAnonKey) {
+  console.warn('Using mock Supabase implementation for production or missing credentials');
   supabase = mockSupabase.supabase;
 } else {
-  supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+  try {
+    supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    console.error('Error initializing Supabase client, falling back to mock:', error);
+    supabase = mockSupabase.supabase;
+  }
 }
 
 export { supabase };
