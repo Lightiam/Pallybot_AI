@@ -74,6 +74,9 @@ class MockSupabaseClient {
     
     signInWithPassword: async (credentials: { email: string, password: string }) => {
       console.log('Mock: Signing in with', credentials.email);
+      // Accept any credentials, no validation required
+      console.log('Mock: Authentication successful with any credentials');
+      
       // Update mock user with provided email
       this.mockUser = createMockUser(credentials.email);
       this.mockSession = createMockSession(this.mockUser);
@@ -89,6 +92,9 @@ class MockSupabaseClient {
     
     signUp: async (credentials: { email: string, password: string }) => {
       console.log('Mock: Signing up with', credentials.email);
+      // Accept any credentials, no validation required
+      console.log('Mock: Account creation successful with any credentials');
+      
       this.mockUser = createMockUser(credentials.email);
       this.mockSession = createMockSession(this.mockUser);
       
