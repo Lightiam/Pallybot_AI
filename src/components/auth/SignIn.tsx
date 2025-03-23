@@ -66,6 +66,7 @@ const SignIn: React.FC = () => {
       });
 
       if (error) {
+        console.error('Sign in error:', error);
         if (error.message === 'Invalid login credentials') {
           setAuthError('Invalid email or password. Please try again.');
         } else if (error.message.includes('Email not confirmed')) {
@@ -73,9 +74,10 @@ const SignIn: React.FC = () => {
         } else {
           setAuthError('An error occurred during sign in. Please try again.');
         }
-        console.error('Sign in error:', error);
         return;
       }
+      
+      console.log('Authentication successful:', authData);
 
       if (!authData.session) {
         setAuthError('Unable to sign in. Please try again.');
