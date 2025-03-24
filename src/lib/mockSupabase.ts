@@ -90,21 +90,34 @@ class MockSupabaseClient {
       };
     },
     
-    signUp: async (credentials: { email: string, password: string }) => {
+    signUp: async (credentials: { email: string, password: string, options?: any }) => {
       console.log('Mock: Signing up with', credentials.email);
-      // Accept any credentials, no validation required
-      console.log('Mock: Account creation successful with any credentials');
-      
-      this.mockUser = createMockUser(credentials.email);
-      this.mockSession = createMockSession(this.mockUser);
-      
-      return { 
-        data: { 
-          user: this.mockUser,
-          session: this.mockSession
-        }, 
-        error: null 
-      };
+      try {
+        // Simulate network request
+        console.log('Mock: Account creation successful with any credentials');
+        
+        // Create mock user with provided email
+        const mockUser = createMockUser(credentials.email);
+        const mockSession = createMockSession(mockUser);
+        
+        return { 
+          data: { 
+            user: mockUser,
+            session: mockSession
+          }, 
+          error: null 
+        };
+      } catch (error) {
+        console.error('Mock: Error in signup (this should never happen but handling anyway):', error);
+        // Even in case of error, return success for mock implementation
+        return {
+          data: {
+            user: createMockUser(credentials.email),
+            session: createMockSession(createMockUser(credentials.email))
+          },
+          error: null
+        };
+      }
     },
     
     signOut: async () => {
