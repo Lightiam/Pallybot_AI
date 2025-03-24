@@ -52,56 +52,234 @@ const VideoConference: React.FC = () => {
 
   useEffect(() => {
     initializeSession();
+    
+    // Load existing messages
+    const loadMessages = async () => {
+      try {
+        console.log('Loading messages for session:', sessionId);
+        const { data, error } = await supabase
+          .from('session_messages')
+          .select('*')
+          .eq('session_id', sessionId)
+          .order('created_at', { ascending: true });
+          
+        if (error) throw error;
+        
+        if (data) {
+          console.log('Loaded messages:', data.length);
+          // Transform to Message format
+          const formattedMessages: Message[] = await Promise.all(data.map(async (msg) => {
+            // Get user info
+            const { data: userData } = await supabase
+              .from('profiles')
+              .select('username')
+              .eq('id', msg.user_id)
+              .single();
+              
+            return {
+              id: msg.id,
+              userId: msg.user_id,
+              userName: userData?.username || 'Unknown User',
+              content: msg.content,
+              timestamp: msg.created_at
+            };
+          }));
+          
+          setMessages(formattedMessages);
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+      }
+    };
+    
+    // Subscribe to new messages
+    const messageChannel = supabase
+      .channel(`messages:${sessionId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'session_messages',
+        filter: `session_id=eq.${sessionId}`
+      }, async (payload) => {
+        console.log('New message received:', payload);
+        
+        try {
+          // Get user info
+          const { data: userData } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', payload.new.user_id)
+            .single();
+            
+          const newMessage: Message = {
+            id: payload.new.id,
+            userId: payload.new.user_id,
+            userName: userData?.username || 'Unknown User',
+            content: payload.new.content,
+            timestamp: payload.new.created_at
+          };
+          
+          setMessages(prev => [...prev, newMessage]);
+        } catch (error) {
+          console.error('Error processing new message:', error);
+        }
+      })
+      .subscribe();
+      
+    loadMessages();
+    
     return () => {
       cleanupSession();
+      messageChannel.unsubscribe();
     };
   }, [sessionId]);
 
   const initializeSession = async () => {
     try {
-      // Get user media
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
+      console.log('Initializing video call session:', sessionId);
       
-      streamRef.current = stream;
-      
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+      // Get user media with fallback options
+      try {
+        // First try with both video and audio
+        console.log('Requesting camera and microphone access...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
+        
+        streamRef.current = stream;
+        
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          console.log('Local video stream connected successfully');
+        }
+      } catch (mediaError) {
+        console.error('Error accessing media devices:', mediaError);
+        
+        // Try with just audio if video fails
+        try {
+          console.log('Retrying with audio only...');
+          const audioOnlyStream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true
+          });
+          
+          streamRef.current = audioOnlyStream;
+          setIsVideoEnabled(false);
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = audioOnlyStream;
+            console.log('Audio-only stream connected');
+          }
+          
+          toast.success('Video unavailable. Using audio only.');
+        } catch (audioError) {
+          console.error('Failed to access audio devices:', audioError);
+          toast.error('Could not access camera or microphone. Please check permissions.');
+          
+          // Create empty stream as fallback
+          const emptyStream = new MediaStream();
+          streamRef.current = emptyStream;
+          setIsAudioEnabled(false);
+          setIsVideoEnabled(false);
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = emptyStream;
+          }
+        }
       }
 
       // Subscribe to session updates
-      const { data: { subscription } } = await supabase
-        .from('session_participants')
-        .on('*', payload => {
-          handleParticipantUpdate(payload.new);
-        })
-        .subscribe();
+      try {
+        // Use realtime subscription if available
+        console.log('Setting up realtime subscription for session updates...');
+        supabase
+          .channel(`session:${sessionId}`)
+          .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'session_participants',
+            filter: `session_id=eq.${sessionId}`
+          }, (payload) => {
+            console.log('Participant update:', payload);
+            handleParticipantUpdate(payload.new);
+          })
+          .subscribe((status) => {
+            console.log(`Participant subscription status: ${status}`);
+          });
+          
+        console.log('Successfully subscribed to session updates');
+      } catch (subError) {
+        console.error('Error subscribing to session updates:', subError);
+        // Continue without real-time updates if subscription fails
+      }
 
       // Join session
-      await supabase
-        .from('session_participants')
-        .insert({
-          session_id: sessionId,
-          user_id: (await supabase.auth.getUser()).data.user?.id,
-          joined_at: new Date().toISOString()
-        });
-
-      toast.success('Successfully joined the session');
+      try {
+        console.log('Joining session in database...');
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id || 'anonymous-user';
+        
+        await supabase
+          .from('session_participants')
+          .insert({
+            session_id: sessionId,
+            user_id: userId,
+            joined_at: new Date().toISOString()
+          });
+          
+        console.log('Successfully joined session in database');
+        toast.success('Successfully joined the video call');
+      } catch (joinError) {
+        console.error('Error joining session in database:', joinError);
+        // Continue even if database update fails
+        toast.error('Connected to call but session data could not be saved');
+      }
     } catch (error) {
-      console.error('Error initializing session:', error);
-      toast.error('Failed to join session');
+      console.error('Fatal error initializing session:', error);
+      toast.error('Failed to start video call. Please try again.');
     }
   };
 
   const cleanupSession = () => {
+    console.log('Cleaning up video call session resources...');
+    
+    // Stop all media tracks
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      console.log('Stopping local media tracks');
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log(`Stopped track: ${track.kind}`);
+      });
+      streamRef.current = null;
     }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+    
+    // Stop recording if active
+    if (mediaRecorderRef.current && isRecording) {
+      console.log('Stopping active recording');
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping media recorder:', error);
+      }
+      mediaRecorderRef.current = null;
     }
+    
+    // Clear video elements
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+    
+    if (screenShareRef.current) {
+      if (screenShareRef.current.srcObject) {
+        (screenShareRef.current.srcObject as MediaStream)
+          .getTracks()
+          .forEach(track => track.stop());
+      }
+      screenShareRef.current.srcObject = null;
+    }
+    
+    console.log('Video call resources cleaned up');
   };
 
   const toggleAudio = () => {
@@ -125,30 +303,70 @@ const VideoConference: React.FC = () => {
   const toggleScreenShare = async () => {
     try {
       if (!isScreenSharing) {
+        console.log('Requesting screen sharing access...');
+        
+        // Request screen sharing
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true
+          video: {
+            cursor: 'always',
+            displaySurface: 'monitor'
+          } as MediaTrackConstraints,
+          audio: false
         });
         
         if (screenShareRef.current) {
           screenShareRef.current.srcObject = screenStream;
+          console.log('Screen sharing stream connected successfully');
         }
         
+        // Handle when user stops sharing via browser UI
         screenStream.getVideoTracks()[0].onended = () => {
+          console.log('Screen sharing stopped by user');
           setIsScreenSharing(false);
+          
+          // Clean up tracks
+          screenStream.getTracks().forEach(track => track.stop());
+          
+          if (screenShareRef.current) {
+            screenShareRef.current.srcObject = null;
+          }
+          
+          toast.success('Screen sharing ended');
         };
         
         setIsScreenSharing(true);
+        toast.success('Screen sharing started');
       } else {
+        // User clicked stop sharing button
+        console.log('Stopping screen sharing via button click');
+        
         if (screenShareRef.current?.srcObject) {
           (screenShareRef.current.srcObject as MediaStream)
             .getTracks()
-            .forEach(track => track.stop());
+            .forEach(track => {
+              track.stop();
+              console.log('Screen sharing track stopped');
+            });
+            
+          screenShareRef.current.srcObject = null;
         }
+        
         setIsScreenSharing(false);
+        toast.success('Screen sharing ended');
       }
     } catch (error) {
       console.error('Error sharing screen:', error);
-      toast.error('Failed to share screen');
+      
+      // Handle user cancellation vs. actual errors
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        console.log('User denied screen sharing permission');
+        toast.error('Screen sharing permission denied');
+      } else if (error instanceof DOMException && error.name === 'AbortError') {
+        console.log('User aborted screen sharing');
+        // Don't show error toast for user cancellation
+      } else {
+        toast.error('Failed to share screen. Please try again.');
+      }
     }
   };
 
@@ -346,7 +564,14 @@ const VideoConference: React.FC = () => {
                 isRecording ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
               }`}
             >
-              <span className={`h-3 w-3 rounded-full ${isRecording ? 'bg-red-500' : 'bg-white'}`} />
+              <div className="relative flex items-center justify-center">
+                <div className={`h-3 w-3 rounded-full ${isRecording ? 'bg-red-500' : 'bg-white'}`} />
+                {isRecording && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-6 w-6 rounded-full bg-red-500 opacity-30 animate-ping" />
+                  </div>
+                )}
+              </div>
             </button>
 
             <button
