@@ -10,10 +10,12 @@ import {
   Users,
   Settings,
   X,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
+import { checkMediaSupport, createCanvasFallbackStream } from '../lib/mediaUtils';
 
 interface Participant {
   id: string;
@@ -46,6 +48,7 @@ const VideoConference: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const screenShareRef = useRef<HTMLVideoElement>(null);
@@ -182,11 +185,49 @@ const VideoConference: React.FC = () => {
     try {
       console.log('Initializing video call session:', sessionId);
       
-      // Check if getUserMedia is supported
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // Check media support using utility function
+      const mediaSupport = await checkMediaSupport();
+      console.log('Media support check results:', mediaSupport);
+      
+      if (!mediaSupport.hasMediaDevices || !mediaSupport.hasGetUserMedia) {
         console.error('Media devices not supported in this browser');
         toast.error('Your browser does not support video calls. Please try a different browser.');
-        throw new Error('Media devices not supported in this browser');
+        setErrorMessage('Your browser does not support video calls');
+        setIsLoading(false);
+        return;
+      }
+      
+      if (!mediaSupport.secureContext) {
+        console.error('Not in a secure context, getUserMedia may not work');
+        toast.error('Video calls require a secure connection (HTTPS)');
+        setErrorMessage('Video calls require a secure connection (HTTPS)');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Show warnings for missing devices
+      if (!mediaSupport.hasVideoDevices) {
+        console.warn('No video devices detected');
+        toast.error('No camera detected. Audio-only mode will be used.');
+      }
+      
+      if (!mediaSupport.hasAudioDevices) {
+        console.warn('No audio devices detected');
+        toast.error('No microphone detected.');
+      }
+      
+      // Enumerate available devices to provide better debugging information
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        const audioDevices = devices.filter(device => device.kind === 'audioinput');
+        
+        console.log(`Available devices: ${devices.length} total`);
+        console.log(`Video devices: ${videoDevices.length}`);
+        console.log(`Audio devices: ${audioDevices.length}`);
+      } catch (enumError) {
+        console.error('Failed to enumerate devices:', enumError);
+        // Continue despite enumeration error
       }
       
       // Check permissions explicitly
@@ -266,17 +307,54 @@ const VideoConference: React.FC = () => {
           console.error('Failed to access audio devices:', audioError);
           toast.error('Could not access camera or microphone. Please check permissions.');
           
-          // Create empty stream as fallback
-          const emptyStream = new MediaStream();
-          streamRef.current = emptyStream;
-          setIsAudioEnabled(false);
-          setIsVideoEnabled(false);
+          // Create canvas fallback
+          const fallback = createCanvasFallbackStream('Camera Unavailable', 'Audio-Only Mode');
           
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = emptyStream;
+          if (fallback.stream) {
+            streamRef.current = fallback.stream;
+            setIsVideoEnabled(false);
+            
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = fallback.stream;
+            }
+            
+            // Set a reference to the cleanup function
+            const cleanupFallback = fallback.cleanup;
+            
+            // Make sure to clean up when component unmounts
+            const existingCleanup = cleanupSession;
+            
+            // Create a new cleanup function that calls both
+            const newCleanup = () => {
+              existingCleanup();
+              cleanupFallback();
+            };
+            
+            // Store reference to cleanup function
+            const cleanupRef = useRef(newCleanup);
+            cleanupRef.current = newCleanup;
+            
+            // Use the cleanup function when component unmounts
+            useEffect(() => {
+              return () => {
+                cleanupRef.current();
+              };
+            }, []);
+            
+            toast.error('Using placeholder video due to camera access issues');
+          } else {
+            // Fallback to empty stream if canvas fails
+            const emptyStream = new MediaStream();
+            streamRef.current = emptyStream;
+            setIsAudioEnabled(false);
+            setIsVideoEnabled(false);
+            
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = emptyStream;
+            }
           }
           
-          throw new Error('Failed to access any media devices');
+          setErrorMessage('Could not access camera or microphone');
         }
       }
 
@@ -641,11 +719,30 @@ const VideoConference: React.FC = () => {
             <button 
               onClick={() => {
                 console.log('Retry connection button clicked');
+                setErrorMessage(null);
                 initializeSession();
               }}
               className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
             >
               Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {!isLoading && errorMessage && (
+        <div className="absolute top-4 left-0 right-0 mx-auto max-w-md z-50">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 mr-2" />
+              <strong className="font-bold mr-1">Error:</strong>
+              <span className="block sm:inline">{errorMessage}</span>
+            </div>
+            <button 
+              onClick={() => setErrorMessage(null)}
+              className="absolute top-0 bottom-0 right-0 px-4 py-3"
+            >
+              <span className="text-red-500">×</span>
             </button>
           </div>
         </div>
