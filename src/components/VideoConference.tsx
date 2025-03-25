@@ -9,7 +9,8 @@ import {
   MessageSquare,
   Users,
   Settings,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
@@ -51,7 +52,12 @@ const VideoConference: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    initializeSession();
+    console.log('VideoConference component mounted with sessionId:', sessionId);
+    
+    // Initialize session with a slight delay to ensure component is fully mounted
+    setTimeout(() => {
+      initializeSession();
+    }, 500);
     
     // Load existing messages
     const loadMessages = async () => {
@@ -63,80 +69,157 @@ const VideoConference: React.FC = () => {
           .eq('session_id', sessionId)
           .order('created_at', { ascending: true });
           
-        if (error) throw error;
+        if (error) {
+          console.error('Error fetching messages:', error);
+          return; // Exit early on error
+        }
         
         if (data) {
           console.log('Loaded messages:', data.length);
-          // Transform to Message format
-          const formattedMessages: Message[] = await Promise.all(data.map(async (msg) => {
-            // Get user info
-            const { data: userData } = await supabase
-              .from('profiles')
-              .select('username')
-              .eq('id', msg.user_id)
-              .single();
-              
-            return {
-              id: msg.id,
-              userId: msg.user_id,
-              userName: userData?.username || 'Unknown User',
-              content: msg.content,
-              timestamp: msg.created_at
-            };
-          }));
-          
-          setMessages(formattedMessages);
+          try {
+            // Transform to Message format
+            const formattedMessages: Message[] = await Promise.all(data.map(async (msg) => {
+              try {
+                // Get user info
+                const { data: userData } = await supabase
+                  .from('profiles')
+                  .select('username')
+                  .eq('id', msg.user_id)
+                  .single();
+                  
+                return {
+                  id: msg.id,
+                  userId: msg.user_id,
+                  userName: userData?.username || 'Unknown User',
+                  content: msg.content,
+                  timestamp: msg.created_at
+                };
+              } catch (userError) {
+                console.error('Error fetching user data for message:', userError);
+                // Return message with default user info
+                return {
+                  id: msg.id,
+                  userId: msg.user_id,
+                  userName: 'Unknown User',
+                  content: msg.content,
+                  timestamp: msg.created_at
+                };
+              }
+            }));
+            
+            setMessages(formattedMessages);
+          } catch (formatError) {
+            console.error('Error formatting messages:', formatError);
+          }
         }
       } catch (error) {
         console.error('Error loading messages:', error);
       }
     };
     
-    // Subscribe to new messages
-    const messageChannel = supabase
-      .channel(`messages:${sessionId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'session_messages',
-        filter: `session_id=eq.${sessionId}`
-      }, async (payload) => {
-        console.log('New message received:', payload);
-        
-        try {
-          // Get user info
-          const { data: userData } = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('id', payload.new.user_id)
-            .single();
-            
-          const newMessage: Message = {
-            id: payload.new.id,
-            userId: payload.new.user_id,
-            userName: userData?.username || 'Unknown User',
-            content: payload.new.content,
-            timestamp: payload.new.created_at
-          };
+    // Subscribe to new messages with error handling
+    let messageChannel: { unsubscribe: () => void } | null = null;
+    try {
+      messageChannel = supabase
+        .channel(`messages:${sessionId}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'session_messages',
+          filter: `session_id=eq.${sessionId}`
+        }, async (payload: any) => {
+          console.log('New message received:', payload);
           
-          setMessages(prev => [...prev, newMessage]);
-        } catch (error) {
-          console.error('Error processing new message:', error);
-        }
-      })
-      .subscribe();
+          try {
+            // Get user info
+            const { data: userData } = await supabase
+              .from('profiles')
+              .select('username')
+              .eq('id', payload.new.user_id)
+              .single();
+              
+            const newMessage: Message = {
+              id: payload.new.id,
+              userId: payload.new.user_id,
+              userName: userData?.username || 'Unknown User',
+              content: payload.new.content,
+              timestamp: payload.new.created_at
+            };
+            
+            setMessages(prev => [...prev, newMessage]);
+          } catch (error) {
+            console.error('Error processing new message:', error);
+            // Add message with default user info on error
+            const fallbackMessage: Message = {
+              id: payload.new.id || `temp-${Date.now()}`,
+              userId: payload.new.user_id || 'unknown',
+              userName: 'Unknown User',
+              content: payload.new.content || '',
+              timestamp: payload.new.created_at || new Date().toISOString()
+            };
+            setMessages(prev => [...prev, fallbackMessage]);
+          }
+        })
+        .subscribe((status) => {
+          console.log(`Message subscription status: ${status}`);
+        });
+    } catch (subError) {
+      console.error('Error setting up message subscription:', subError);
+      // Continue without real-time updates
+    }
       
-    loadMessages();
+    // Load messages after a short delay to ensure component is mounted
+    setTimeout(() => {
+      loadMessages();
+    }, 1000);
     
     return () => {
+      console.log('VideoConference component unmounting, cleaning up resources');
       cleanupSession();
-      messageChannel.unsubscribe();
+      if (messageChannel) {
+        try {
+          messageChannel.unsubscribe();
+          console.log('Message channel unsubscribed');
+        } catch (unsubError) {
+          console.error('Error unsubscribing from message channel:', unsubError);
+        }
+      }
     };
   }, [sessionId]);
 
   const initializeSession = async () => {
     try {
       console.log('Initializing video call session:', sessionId);
+      
+      // Check if getUserMedia is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error('Media devices not supported in this browser');
+        toast.error('Your browser does not support video calls. Please try a different browser.');
+        
+        // Create empty stream as fallback
+        const emptyStream = new MediaStream();
+        streamRef.current = emptyStream;
+        setIsAudioEnabled(false);
+        setIsVideoEnabled(false);
+        
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = emptyStream;
+        }
+        return; // Exit early
+      }
+      
+      // Check permissions explicitly
+      try {
+        const permissions = await navigator.permissions.query({ name: 'camera' as PermissionName });
+        console.log('Camera permission status:', permissions.state);
+        
+        if (permissions.state === 'denied') {
+          console.error('Camera permissions denied by browser settings');
+          toast.error('Camera access denied. Please enable camera permissions in your browser settings.');
+        }
+      } catch (permError) {
+        console.log('Unable to check permissions, continuing anyway:', permError);
+      }
       
       // Get user media with fallback options
       try {
@@ -147,11 +230,16 @@ const VideoConference: React.FC = () => {
           audio: true
         });
         
+        console.log('Successfully obtained media stream with video and audio');
         streamRef.current = stream;
         
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           console.log('Local video stream connected successfully');
+          toast.success('Video call initialized successfully');
+        } else {
+          console.error('Video element reference is null');
+          toast.error('Could not initialize video display');
         }
       } catch (mediaError) {
         console.error('Error accessing media devices:', mediaError);
@@ -164,20 +252,24 @@ const VideoConference: React.FC = () => {
             audio: true
           });
           
+          console.log('Successfully obtained audio-only stream');
           streamRef.current = audioOnlyStream;
           setIsVideoEnabled(false);
           
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = audioOnlyStream;
             console.log('Audio-only stream connected');
+            toast.success('Video unavailable. Using audio only.');
+          } else {
+            console.error('Video element reference is null');
+            toast.error('Could not initialize audio display');
           }
-          
-          toast.success('Video unavailable. Using audio only.');
         } catch (audioError) {
           console.error('Failed to access audio devices:', audioError);
           toast.error('Could not access camera or microphone. Please check permissions.');
           
           // Create empty stream as fallback
+          console.log('Creating empty fallback stream');
           const emptyStream = new MediaStream();
           streamRef.current = emptyStream;
           setIsAudioEnabled(false);
@@ -185,6 +277,7 @@ const VideoConference: React.FC = () => {
           
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = emptyStream;
+            console.log('Empty stream connected to video element');
           }
         }
       }
@@ -248,8 +341,12 @@ const VideoConference: React.FC = () => {
     if (streamRef.current) {
       console.log('Stopping local media tracks');
       streamRef.current.getTracks().forEach(track => {
-        track.stop();
-        console.log(`Stopped track: ${track.kind}`);
+        try {
+          track.stop();
+          console.log(`Stopped track: ${track.kind}`);
+        } catch (error) {
+          console.error(`Error stopping ${track.kind} track:`, error);
+        }
       });
       streamRef.current = null;
     }
@@ -283,20 +380,45 @@ const VideoConference: React.FC = () => {
   };
 
   const toggleAudio = () => {
+    console.log('Audio toggle button clicked, current state:', isAudioEnabled);
     if (streamRef.current) {
-      streamRef.current.getAudioTracks().forEach(track => {
+      const audioTracks = streamRef.current.getAudioTracks();
+      console.log('Audio tracks found:', audioTracks.length);
+      
+      audioTracks.forEach(track => {
         track.enabled = !isAudioEnabled;
+        console.log(`Audio track ${track.id} enabled set to:`, !isAudioEnabled);
       });
+      
       setIsAudioEnabled(!isAudioEnabled);
+      toast.success(isAudioEnabled ? 'Microphone muted' : 'Microphone unmuted');
+    } else {
+      console.error('No media stream available for audio toggle');
+      toast.error('Cannot toggle audio: no media stream available');
     }
   };
 
   const toggleVideo = () => {
+    console.log('Video toggle button clicked, current state:', isVideoEnabled);
     if (streamRef.current) {
-      streamRef.current.getVideoTracks().forEach(track => {
+      const videoTracks = streamRef.current.getVideoTracks();
+      console.log('Video tracks found:', videoTracks.length);
+      
+      if (videoTracks.length === 0) {
+        toast.error('No video track available. Camera might not be accessible.');
+        return;
+      }
+      
+      videoTracks.forEach(track => {
         track.enabled = !isVideoEnabled;
+        console.log(`Video track ${track.id} enabled set to:`, !isVideoEnabled);
       });
+      
       setIsVideoEnabled(!isVideoEnabled);
+      toast.success(isVideoEnabled ? 'Camera turned off' : 'Camera turned on');
+    } else {
+      console.error('No media stream available for video toggle');
+      toast.error('Cannot toggle video: no media stream available');
     }
   };
 
@@ -486,8 +608,32 @@ const VideoConference: React.FC = () => {
     });
   };
 
+  // Add debug info to help diagnose issues
+  console.log('Rendering VideoConference component with state:', {
+    isAudioEnabled,
+    isVideoEnabled,
+    isScreenSharing,
+    isRecording,
+    hasStream: !!streamRef.current,
+    sessionId
+  });
+
   return (
     <div className="min-h-screen bg-gray-900">
+      {!streamRef.current && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-70">
+          <div className="flex flex-col items-center space-y-3">
+            <Loader2 className="h-12 w-12 animate-spin text-purple-600" />
+            <p className="text-white font-medium">Initializing video call...</p>
+            <button 
+              onClick={() => initializeSession()}
+              className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+            >
+              Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex h-screen">
         {/* Main Video Area */}
         <div className="flex-1 relative">

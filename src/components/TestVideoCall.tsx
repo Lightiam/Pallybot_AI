@@ -62,11 +62,26 @@ const TestVideoCall: React.FC = () => {
     }
     
     // Create a stream from the canvas
-    // @ts-ignore - captureStream may not be recognized by TypeScript
-    const stream = canvas.captureStream ? canvas.captureStream(30) : null;
+    let stream = null;
+    
+    try {
+      // Try different methods to capture stream from canvas
+      if (canvas.captureStream) {
+        // Standard method
+        stream = canvas.captureStream(30);
+      } else if ((canvas as any).mozCaptureStream) {
+        // Firefox method
+        stream = (canvas as any).mozCaptureStream(30);
+      } else if ((canvas as any).webkitCaptureStream) {
+        // Webkit method
+        stream = (canvas as any).webkitCaptureStream(30);
+      }
+    } catch (error) {
+      console.error('Error creating canvas stream:', error);
+    }
     
     if (!stream) {
-      console.error('Canvas.captureStream not supported');
+      console.error('Canvas stream creation not supported in this browser');
       return null;
     }
     
@@ -251,13 +266,98 @@ const TestVideoCall: React.FC = () => {
     }
   };
 
+  // Create a simple fallback UI when no media devices are available
+  const createFallbackUI = () => {
+    console.log('Creating fallback UI for environments without media devices');
+    setIsLoading(false);
+    setUseMockStream(true);
+    
+    // Create a simple colored div to show instead of video
+    if (localVideoRef.current) {
+      // Remove any existing content
+      if (localVideoRef.current.srcObject) {
+        localVideoRef.current.srcObject = null;
+      }
+      
+      // Add a timestamp that updates to show the component is alive
+      const updateTimestamp = () => {
+        if (localVideoRef.current && localVideoRef.current.parentElement) {
+          const timestampDiv = document.createElement('div');
+          timestampDiv.className = 'absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600';
+          timestampDiv.innerHTML = `
+            <div class="text-white text-xl font-bold mb-2">Mock Camera</div>
+            <div class="text-white mb-4">No device available</div>
+            <div class="text-white text-sm font-mono">${new Date().toLocaleTimeString()}</div>
+            <div class="text-white text-sm mt-4">Session: ${sessionId || 'test'}</div>
+          `;
+          
+          // Replace any existing fallback UI
+          const existingFallback = localVideoRef.current.parentElement.querySelector('.absolute');
+          if (existingFallback) {
+            localVideoRef.current.parentElement.removeChild(existingFallback);
+          }
+          
+          localVideoRef.current.parentElement.appendChild(timestampDiv);
+        }
+      };
+      
+      // Update immediately and then every second
+      updateTimestamp();
+      const interval = setInterval(updateTimestamp, 1000);
+      
+      // Store interval ID for cleanup
+      return interval;
+    }
+    
+    return null;
+  };
+
   useEffect(() => {
     console.log('TestVideoCall component mounted with sessionId:', sessionId);
     
     // Initialize with a slight delay to ensure component is fully mounted
     const timer = setTimeout(() => {
-      initializeMedia();
-    }, 1000);
+      try {
+        // Try to initialize media
+        const mockStream = createMockStream();
+        
+        if (mockStream && localVideoRef.current) {
+          console.log('Using mock stream');
+          streamRef.current = mockStream;
+          localVideoRef.current.srcObject = mockStream;
+          setUseMockStream(true);
+          
+          localVideoRef.current.onloadedmetadata = () => {
+            localVideoRef.current?.play()
+              .then(() => {
+                console.log('Mock video playback started successfully');
+                toast.success('Using simulated camera (no device found)');
+                setIsLoading(false);
+              })
+              .catch(err => {
+                console.error('Error starting mock video playback:', err);
+                // Fall back to simple UI
+                const intervalId = createFallbackUI();
+                return () => {
+                  if (intervalId) clearInterval(intervalId);
+                };
+              });
+          };
+        } else {
+          console.log('Mock stream creation failed, using fallback UI');
+          const intervalId = createFallbackUI();
+          return () => {
+            if (intervalId) clearInterval(intervalId);
+          };
+        }
+      } catch (error) {
+        console.error('Error in TestVideoCall initialization:', error);
+        const intervalId = createFallbackUI();
+        return () => {
+          if (intervalId) clearInterval(intervalId);
+        };
+      }
+    }, 500);
     
     // Cleanup function
     return () => {

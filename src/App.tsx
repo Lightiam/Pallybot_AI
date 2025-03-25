@@ -18,7 +18,7 @@ import UserProfile from './components/UserProfile';
 import Pricing from './components/Pricing';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import VideoConference from './components/VideoConference';
-import TestVideoCall from './components/TestVideoCall';
+import SimpleTestVideoCall from './components/SimpleTestVideoCall';
 import TrainingRouter from './components/training/TrainingRouter';
 import CurriculumRouter from './components/curriculum/CurriculumRouter';
 import AIRouter from './components/ai/AIRouter';
@@ -165,7 +165,7 @@ function App() {
             {/* Test route for video call without authentication (for development only) */}
             <Route
               path="/test-video-call/:sessionId"
-              element={<TestVideoCall />}
+              element={<SimpleTestVideoCall />}
             />
             <Route
               path="/admin/*"
