@@ -2,6 +2,15 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Navigation from './components/Navigation';
+import MinimalVideoTest from './components/MinimalVideoTest';
+import UltraSimpleVideoTest from './components/UltraSimpleVideoTest';
+import DirectVideoTest from './components/DirectVideoTest';
+import PureVideoTest from './components/PureVideoTest';
+import CanvasVideoTest from './components/CanvasVideoTest';
+import FallbackVideoTest from './components/FallbackVideoTest';
+import WebcamTest from './components/WebcamTest';
+import StaticVideoTest from './components/StaticVideoTest';
+import BrowserVideoTest from './components/BrowserVideoTest';
 import LandingPage from './components/LandingPage';
 import SignUp from './components/auth/SignUp';
 import SignIn from './components/auth/SignIn';
@@ -18,6 +27,8 @@ import UserProfile from './components/UserProfile';
 import Pricing from './components/Pricing';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import VideoConference from './components/VideoConference';
+import SimpleTestVideoCall from './components/SimpleTestVideoCall';
+import BasicVideoTest from './components/BasicVideoTest';
 import TrainingRouter from './components/training/TrainingRouter';
 import CurriculumRouter from './components/curriculum/CurriculumRouter';
 import AIRouter from './components/ai/AIRouter';
@@ -158,6 +169,52 @@ function App() {
                   <VideoConference />
                 </ProtectedRoute>
               }
+            />
+            
+            {/* Test routes for video call without authentication (for development only) */}
+            <Route
+              path="/test-video-call/:sessionId"
+              element={<SimpleTestVideoCall />}
+            />
+            <Route
+              path="/basic-video-test/:sessionId"
+              element={<BasicVideoTest />}
+            />
+            <Route
+              path="/minimal-video-test/:sessionId"
+              element={<MinimalVideoTest />}
+            />
+            <Route
+              path="/ultra-simple-video-test/:sessionId"
+              element={<UltraSimpleVideoTest />}
+            />
+            <Route
+              path="/direct-video-test"
+              element={<DirectVideoTest />}
+            />
+            <Route
+              path="/pure-video-test/:sessionId"
+              element={<PureVideoTest />}
+            />
+            <Route
+              path="/canvas-video-test/:sessionId"
+              element={<CanvasVideoTest />}
+            />
+            <Route
+              path="/fallback-video-test/:sessionId"
+              element={<FallbackVideoTest />}
+            />
+            <Route
+              path="/webcam-test/:sessionId"
+              element={<WebcamTest />}
+            />
+            <Route
+              path="/static-video-test/:sessionId"
+              element={<StaticVideoTest />}
+            />
+            <Route
+              path="/browser-video-test/:sessionId"
+              element={<BrowserVideoTest />}
             />
             <Route
               path="/admin/*"

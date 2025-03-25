@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background-color: #4f46e5;
+            color: white;
+            padding: 15px 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .content {
+            padding: 20px;
+        }
+        .video-container {
+            background-color: #1f2937;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            background-color: black;
+            display: block;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .start-btn {
+            background-color: #10b981;
+            color: white;
+        }
+        .stop-btn {
+            background-color: #ef4444;
+            color: white;
+        }
+        .status {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .error {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+        .info {
+            background-color: #e0f2fe;
+            color: #0369a1;
+        }
+        .debug-info {
+            background-color: #f3f4f6;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Video Test Page</h1>
+        </div>
+        <div class="content">
+            <div id="status" class="status info">Ready to start video</div>
+            
+            <div class="video-container">
+                <video id="video-element" autoplay playsinline muted></video>
+            </div>
+            
+            <div class="controls">
+                <button id="start-button" class="start-btn">Start Camera</button>
+                <button id="stop-button" class="stop-btn" disabled>Stop Camera</button>
+            </div>
+            
+            <h3>Debug Information:</h3>
+            <div id="debug-info" class="debug-info">Loading browser information...</div>
+        </div>
+    </div>
+
+    <script>
+        // Update debug info
+        function updateDebugInfo() {
+            const debugElement = document.getElementById('debug-info');
+            if (debugElement) {
+                const videoElement = document.getElementById('video-element');
+                const videoInfo = videoElement && videoElement.srcObject ? {
+                    videoTracks: videoElement.srcObject.getVideoTracks().length,
+                    audioTracks: videoElement.srcObject.getAudioTracks().length,
+                    trackSettings: videoElement.srcObject.getVideoTracks()[0]?.getSettings()
+                } : 'No video stream';
+                
+                debugElement.textContent = JSON.stringify({
+                    browserInfo: navigator.userAgent,
+                    timestamp: new Date().toISOString(),
+                    hasMediaDevices: !!navigator.mediaDevices,
+                    hasGetUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                    videoInfo
+                }, null, 2);
+            }
+        }
+        
+        // Update status message
+        function updateStatus(message, type = 'info') {
+            const statusElement = document.getElementById('status');
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.className = `status ${type}`;
+            }
+            console.log(`[${type}] ${message}`);
+        }
+        
+        // Start video function
+        async function startVideo() {
+            try {
+                updateStatus('Requesting camera access...', 'info');
+                
+                // Check if getUserMedia is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('getUserMedia is not supported in this browser');
+                }
+                
+                // Request camera access
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true,
+                    audio: false
+                });
+                
+                console.log('Camera access granted:', stream);
+                console.log('Video tracks:', stream.getVideoTracks().length);
+                
+                // Set stream to video element
+                const videoElement = document.getElementById('video-element');
+                if (videoElement) {
+                    videoElement.srcObject = stream;
+                    updateStatus('Camera access granted', 'success');
+                    
+                    // Update button states
+                    document.getElementById('start-button').disabled = true;
+                    document.getElementById('stop-button').disabled = false;
+                    
+                    // Update debug info
+                    updateDebugInfo();
+                } else {
+                    throw new Error('Video element not found');
+                }
+            } catch (error) {
+                console.error('Error starting video:', error);
+                updateStatus(`Failed to access camera: ${error.message}`, 'error');
+            }
+        }
+        
+        // Stop video function
+        function stopVideo() {
+            const videoElement = document.getElementById('video-element');
+            if (videoElement && videoElement.srcObject) {
+                const stream = videoElement.srcObject;
+                stream.getTracks().forEach(track => {
+                    console.log(`Stopping ${track.kind} track`);
+                    track.stop();
+                });
+                videoElement.srcObject = null;
+                updateStatus('Camera stopped', 'info');
+                
+                // Update button states
+                document.getElementById('start-button').disabled = false;
+                document.getElementById('stop-button').disabled = true;
+                
+                // Update debug info
+                updateDebugInfo();
+            }
+        }
+        
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, setting up event listeners');
+            
+            // Add event listeners to buttons
+            document.getElementById('start-button').addEventListener('click', startVideo);
+            document.getElementById('stop-button').addEventListener('click', stopVideo);
+            
+            // Initial debug info
+            updateDebugInfo();
+        });
+        
+        // Log that script is running
+        console.log('Video test page script loaded');
+    </script>
+</body>
+</html>

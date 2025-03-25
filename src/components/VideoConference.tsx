@@ -9,7 +9,8 @@ import {
   MessageSquare,
   Users,
   Settings,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
@@ -44,6 +45,7 @@ const VideoConference: React.FC = () => {
   const [newMessage, setNewMessage] = useState('');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const screenShareRef = useRef<HTMLVideoElement>(null);
@@ -51,7 +53,48 @@ const VideoConference: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    initializeSession();
+    console.log('VideoConference component mounted with sessionId:', sessionId);
+    
+    // Initialize video call first
+    const initVideoCall = async () => {
+      try {
+        setIsLoading(true);
+        console.log('Starting video call initialization...');
+        
+        // Check browser compatibility first
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          console.error('Media devices not supported in this browser');
+          toast.error('Your browser does not support video calls. Please try a different browser.');
+          return; // Exit early
+        }
+        
+        // Try to initialize session with timeout
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Video call initialization timed out')), 15000);
+        });
+        
+        try {
+          await Promise.race([initializeSession(), timeoutPromise]);
+          console.log('Video call initialization completed successfully');
+        } catch (error) {
+          const initError = error as Error;
+          console.error('Error during initialization:', initError);
+          if (initError.message === 'Video call initialization timed out') {
+            toast.error('Video call initialization timed out. Please check your camera permissions and try again.');
+          } else {
+            toast.error('Failed to start video call: ' + (initError.message || 'Unknown error'));
+          }
+          throw initError; // Re-throw to be caught by outer try-catch
+        }
+      } catch (error) {
+        console.error('Failed to initialize video call:', error);
+        toast.error('Failed to start video call. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    initVideoCall();
     
     // Load existing messages
     const loadMessages = async () => {
@@ -129,6 +172,7 @@ const VideoConference: React.FC = () => {
     loadMessages();
     
     return () => {
+      console.log('VideoConference component unmounting, cleaning up resources');
       cleanupSession();
       messageChannel.unsubscribe();
     };
@@ -138,20 +182,65 @@ const VideoConference: React.FC = () => {
     try {
       console.log('Initializing video call session:', sessionId);
       
-      // Get user media with fallback options
+      // Check if getUserMedia is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error('Media devices not supported in this browser');
+        toast.error('Your browser does not support video calls. Please try a different browser.');
+        throw new Error('Media devices not supported in this browser');
+      }
+      
+      // Check permissions explicitly
+      try {
+        const permissions = await navigator.permissions.query({ name: 'camera' as PermissionName });
+        console.log('Camera permission status:', permissions.state);
+        
+        if (permissions.state === 'denied') {
+          console.error('Camera permissions denied by browser settings');
+          toast.error('Camera access denied. Please enable camera permissions in your browser settings.');
+          throw new Error('Camera permissions denied');
+        }
+      } catch (permError) {
+        console.log('Unable to check permissions, continuing anyway:', permError);
+        // Continue even if we can't check permissions - some browsers don't support this API
+      }
+      
+      // Get user media with fallback options and better error handling
       try {
         // First try with both video and audio
         console.log('Requesting camera and microphone access...');
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true
+        
+        // Create a timeout promise for media access
+        const mediaTimeout = new Promise<MediaStream>((_, reject) => {
+          setTimeout(() => reject(new Error('Media access request timed out')), 10000);
         });
         
+        // Race the media request against the timeout
+        const stream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+          }),
+          mediaTimeout
+        ]);
+        
+        // If we get here, we have a valid stream
+        console.log('Media access granted successfully');
         streamRef.current = stream;
         
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           console.log('Local video stream connected successfully');
+          
+          // Add event listener to handle when video is ready
+          localVideoRef.current.onloadedmetadata = () => {
+            console.log('Video metadata loaded, playing video');
+            localVideoRef.current?.play()
+              .then(() => console.log('Video playing successfully'))
+              .catch(err => console.error('Error playing video:', err));
+          };
+        } else {
+          console.error('Video element reference is null');
+          throw new Error('Video element not found');
         }
       } catch (mediaError) {
         console.error('Error accessing media devices:', mediaError);
@@ -186,6 +275,8 @@ const VideoConference: React.FC = () => {
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = emptyStream;
           }
+          
+          throw new Error('Failed to access any media devices');
         }
       }
 
@@ -283,20 +374,64 @@ const VideoConference: React.FC = () => {
   };
 
   const toggleAudio = () => {
-    if (streamRef.current) {
-      streamRef.current.getAudioTracks().forEach(track => {
+    try {
+      console.log('Toggling audio, current state:', isAudioEnabled);
+      
+      if (!streamRef.current) {
+        console.error('No media stream available');
+        toast.error('Cannot toggle audio: No media stream available');
+        return;
+      }
+      
+      const audioTracks = streamRef.current.getAudioTracks();
+      
+      if (audioTracks.length === 0) {
+        console.error('No audio tracks available');
+        toast.error('No microphone detected');
+        return;
+      }
+      
+      audioTracks.forEach(track => {
         track.enabled = !isAudioEnabled;
+        console.log(`Audio track ${track.id} enabled:`, !isAudioEnabled);
       });
+      
       setIsAudioEnabled(!isAudioEnabled);
+      toast.success(isAudioEnabled ? 'Microphone muted' : 'Microphone unmuted');
+    } catch (error) {
+      console.error('Error toggling audio:', error);
+      toast.error('Failed to toggle microphone');
     }
   };
 
   const toggleVideo = () => {
-    if (streamRef.current) {
-      streamRef.current.getVideoTracks().forEach(track => {
+    try {
+      console.log('Toggling video, current state:', isVideoEnabled);
+      
+      if (!streamRef.current) {
+        console.error('No media stream available');
+        toast.error('Cannot toggle video: No media stream available');
+        return;
+      }
+      
+      const videoTracks = streamRef.current.getVideoTracks();
+      
+      if (videoTracks.length === 0) {
+        console.error('No video tracks available');
+        toast.error('No camera detected');
+        return;
+      }
+      
+      videoTracks.forEach(track => {
         track.enabled = !isVideoEnabled;
+        console.log(`Video track ${track.id} enabled:`, !isVideoEnabled);
       });
+      
       setIsVideoEnabled(!isVideoEnabled);
+      toast.success(isVideoEnabled ? 'Camera turned off' : 'Camera turned on');
+    } catch (error) {
+      console.error('Error toggling video:', error);
+      toast.error('Failed to toggle camera');
     }
   };
 
@@ -486,8 +621,35 @@ const VideoConference: React.FC = () => {
     });
   };
 
+  // Add debug info to help diagnose issues
+  console.log('Rendering VideoConference component with state:', {
+    isAudioEnabled,
+    isVideoEnabled,
+    isScreenSharing,
+    isRecording,
+    hasStream: !!streamRef.current,
+    sessionId
+  });
+
   return (
     <div className="min-h-screen bg-gray-900">
+      {isLoading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-80">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="h-12 w-12 animate-spin text-purple-600" />
+            <p className="text-white font-medium">Initializing video call...</p>
+            <button 
+              onClick={() => {
+                console.log('Retry connection button clicked');
+                initializeSession();
+              }}
+              className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+            >
+              Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex h-screen">
         {/* Main Video Area */}
         <div className="flex-1 relative">
